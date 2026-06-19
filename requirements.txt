@@ -1,0 +1,24 @@
+# CircuitPython library dependencies for ShowerTrack.
+#
+# These are NOT pip packages -- they are Adafruit CircuitPython bundle
+# libraries that must be copied into the CIRCUITPY/lib folder.  The easiest
+# way is the circup tool (https://github.com/adafruit/circup):
+#
+#     pip install circup
+#     circup install adafruit_esp32spi adafruit_minimqtt adafruit_sht4x \
+#                     adafruit_connection_manager adafruit_ticks adafruit_bus_device
+#
+# circup resolves transitive dependencies automatically, but the full set
+# that must end up under CIRCUITPY/lib is:
+#
+#   adafruit_esp32spi/            AirLift ESP32 Wi-Fi co-processor driver
+#   adafruit_minimqtt/            MQTT client
+#   adafruit_connection_manager   socket pool / SSL context for the radio
+#   adafruit_sht4x                SHT4x temperature + humidity sensor
+#   adafruit_bus_device/          I2C/SPI bus helpers (sht4x dependency)
+#   adafruit_ticks                timing helper (minimqtt dependency)
+#
+# The TM1637 4-digit display has NO external dependency: it is bit-banged in
+# showertrack/display.py using only the built-in digitalio module.
+#
+# Tested against CircuitPython 9.x on the Adafruit Feather nRF52840 Express.
