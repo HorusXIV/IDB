@@ -1,0 +1,41 @@
+# All values come from .env (see .env.example). Run from this directory so
+# Docker Compose auto-loads .env:  `docker compose up -d --build`.
+services:
+  postgres:
+    image: postgres:16
+    container_name: showertrack-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${TZ}
+      # Consumed by initdb/000_app_user.sh to create the application role.
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - /mnt/ssd/showertrack/postgres:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+
+  mqtt_ingestor:
+    build: ./mqtt_ingestor
+    container_name: showertrack-mqtt-ingestor
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      MQTT_HOST: ${MQTT_HOST}
+      MQTT_PORT: ${MQTT_PORT}
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+
+      MQTT_TOPIC_TELEMETRY: ${MQTT_TOPIC_TELEMETRY}
+      MQTT_TOPIC_EVENT: ${MQTT_TOPIC_EVENT}
+      MQTT_TOPIC_STATUS: ${MQTT_TOPIC_STATUS}
+
+      PGHOST: ${PGHOST}
+      PGPORT: ${PGPORT}
+      PGDATABASE: ${PGDATABASE}
+      PGUSER: ${PGUSER}
+      PGPASSWORD: ${APP_DB_PASSWORD}

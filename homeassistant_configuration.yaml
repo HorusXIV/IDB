@@ -1,0 +1,43 @@
+mqtt:
+  sensor:
+    - name: "Shower Temperature"
+      unique_id: shower_temperature
+      state_topic: "shower/device1/telemetry"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      value_template: "{{ value_json.temperature_c }}"
+      availability_topic: "shower/device1/status"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "Shower Humidity"
+      unique_id: shower_humidity
+      state_topic: "shower/device1/telemetry"
+      unit_of_measurement: "%"
+      device_class: humidity
+      state_class: measurement
+      value_template: "{{ value_json.humidity_rh }}"
+      availability_topic: "shower/device1/status"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "Shower Remaining Seconds"
+      unique_id: shower_remaining_s
+      state_topic: "shower/device1/telemetry"
+      unit_of_measurement: "s"
+      value_template: "{{ value_json.remaining_s }}"
+      availability_topic: "shower/device1/status"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+  binary_sensor:
+    - name: "Shower Buzzer Active"
+      unique_id: shower_buzzer_active
+      state_topic: "shower/device1/telemetry"
+      value_template: "{{ value_json.buzzer_active }}"
+      payload_on: "True"
+      payload_off: "False"
+      availability_topic: "shower/device1/status"
+      payload_available: "online"
+      payload_not_available: "offline"

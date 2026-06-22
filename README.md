@@ -1,16 +1,50 @@
-# ShowerTrack Collector (CircuitPython)
+# ShowerTrack
+
+End-to-end shower tracking. An embedded **collector** times showers and
+publishes sensor/timer state over MQTT; a server-side **ingestor** subscribes
+to those topics and writes telemetry, events and derived shower sessions into
+PostgreSQL.
+
+```text
+[ Feather nRF52840 + AirLift ]   firmware — showertrack-circuitpython
+          │  publishes  shower/device1/{status,telemetry,event}
+          ▼
+[ MQTT broker (e.g. Mosquitto) ]
+          │  subscribes shower/+/{status,telemetry,event}
+          ▼
+[ mqtt_ingestor (paho-mqtt) ]    service — showertrack-mqtt_ingestor
+          │  INSERT / UPDATE
+          ▼
+[ PostgreSQL ]
+```
+
+## Repository layout
+
+```text
+.
+├── showertrack-circuitpython/   # device firmware (CircuitPython collector)
+└── showertrack-mqtt_ingestor/   # MQTT → PostgreSQL ingestor (Docker Compose)
+```
+
+## Secrets
+
+Credentials are never committed. The firmware reads `secrets.py`; the ingestor
+reads a `.env` file. Both are git-ignored, with `secrets.example*.py` and
+`.env.example` checked in as templates. See the top-level `.gitignore`.
+
+---
+
+# 1. Collector firmware — `showertrack-circuitpython/`
 
 A CircuitPython port of the ShowerTrack data-collection firmware for the
-**Adafruit Feather nRF52840 Express + AirLift FeatherWing** and a small
-stack of Grove sensors. The device reads local sensor/timer state and
-publishes it over MQTT; shower detection and session labelling are left to
-downstream services, exactly as in the original C++ firmware.
+**Adafruit Feather nRF52840 Express + AirLift FeatherWing** and a small stack
+of Grove sensors. The device reads local sensor/timer state and publishes it
+over MQTT; shower detection and session labelling are left to the ingestor,
+exactly as in the original C++ firmware.
 
-This is a behaviour-preserving migration of the Arduino/C++ project: the
-MQTT topics, JSON payload shapes, timer state machine, debouncing, rotary
-quantisation and connection logic all match the original. Where the
-interpreted runtime made a literal translation impossible, the adaptation is
-documented under [Migration notes](#migration-notes).
+This is a behaviour-preserving migration of the Arduino/C++ project: the MQTT
+topics, JSON payload shapes, timer state machine, debouncing, rotary
+quantisation and connection logic all match the original.
 
 ## Hardware
 
@@ -22,7 +56,7 @@ documented under [Migration notes](#migration-notes).
 - AirLift FeatherWing for Wi-Fi/MQTT (`CS=D13`, `BUSY/READY=D11`,
   `RESET=D12`, `GPIO0` not connected).
 
-## Repository layout
+## Package layout
 
 ```text
 showertrack-circuitpython/
@@ -30,7 +64,6 @@ showertrack-circuitpython/
 ├── code.py                 # entry point: starts the app
 ├── secrets.example.py      # copy to secrets.py and fill in
 ├── requirements.txt        # CircuitPython library list (circup)
-├── .gitignore
 └── showertrack/            # application package
     ├── __init__.py
     ├── clock.py            # monotonic millisecond clock
@@ -42,8 +75,8 @@ showertrack-circuitpython/
 
 ## Deployment
 
-1. **Install CircuitPython** (9.x recommended) on the Feather nRF52840.
-   Drag the `.uf2` from <https://circuitpython.org/board/feather_nrf52840_express/>
+1. **Install CircuitPython** (9.x or newer) on the Feather nRF52840. Drag the
+   `.uf2` from <https://circuitpython.org/board/feather_nrf52840_express/>
    onto the `FEATHERBOOT` drive; the board reappears as `CIRCUITPY`.
 
 2. **Install the libraries.** With [circup](https://github.com/adafruit/circup):
@@ -54,8 +87,8 @@ showertrack-circuitpython/
                   adafruit_connection_manager adafruit_ticks adafruit_bus_device
    ```
 
-   (See `requirements.txt` for the full resolved list. The TM1637 display
-   needs no library — it is bit-banged with `digitalio`.)
+   (The TM1637 display needs no library — it is bit-banged with `digitalio`.
+   Make sure the bundle matches your CircuitPython major version.)
 
 3. **Copy the project** onto the `CIRCUITPY` drive so the layout becomes:
 
@@ -63,10 +96,14 @@ showertrack-circuitpython/
    CIRCUITPY/
    ├── boot.py
    ├── code.py
-   ├── secrets.py            
+   ├── secrets.py
    ├── showertrack/          # the package
    └── lib/                  # the libraries from step 2
    ```
+
+   On the nRF52840, run `sync` and safely eject the `CIRCUITPY` drive before
+   resetting — its internal flash is prone to corruption if writes aren't
+   flushed.
 
 4. **Create `secrets.py`** from the template:
 
@@ -78,8 +115,8 @@ showertrack-circuitpython/
    (115200 baud) to watch boot diagnostics.
 
 If `secrets.py`, the radio libraries, or the AirLift itself are missing, the
-device still boots and runs the timer/display/buzzer locally — it simply
-skips Wi-Fi/MQTT.
+device still boots and runs the timer/display/buzzer locally — it simply skips
+Wi-Fi/MQTT.
 
 ## Usage
 
@@ -94,9 +131,88 @@ steps. The button drives the timer:
 When the timer hits zero the device enters `alarm`, publishes a
 `timer_finished` event, and sounds the buzzer until the button is pressed.
 
-## MQTT interface
+---
 
-Identical to the original firmware. Topics:
+# 2. Ingestor — `showertrack-mqtt_ingestor/`
+
+A Dockerised service that subscribes to the device's MQTT topics and persists
+everything into PostgreSQL. It stores raw telemetry and events, and derives
+**shower sessions** from the timer's lifecycle events (start on
+`timer_started`, close on `timer_finished`, with fallbacks for
+`alarm_silenced` and stale open sessions).
+
+## Stack
+
+- Python 3.12, [`paho-mqtt`](https://pypi.org/project/paho-mqtt/) 2.x,
+  [`psycopg`](https://www.psycopg.org/) 3.
+- PostgreSQL 16.
+- Docker Compose (two services: `postgres` and `mqtt_ingestor`).
+
+## Layout
+
+```text
+showertrack-mqtt_ingestor/
+├── docker-compose.yml          # postgres + mqtt_ingestor services
+├── .env.example                # config template → copy to .env
+├── initdb/                     # run by Postgres on first init (empty volume)
+│   ├── 000_app_user.sh         # creates the app role from $APP_DB_PASSWORD
+│   └── 001_schema.sql          # table definitions
+├── schema_v2.sql               # current schema matching the ingestor
+└── mqtt_ingestor/
+    ├── app.py                  # subscribe → parse → write to Postgres
+    ├── Dockerfile
+    └── requirements.txt
+```
+
+## Configuration
+
+All configuration — broker, database and credentials — comes from a `.env`
+file that Docker Compose substitutes into `docker-compose.yml`. Nothing
+sensitive lives in a committed file.
+
+```bash
+cd showertrack-mqtt_ingestor
+cp .env.example .env     # then edit .env with real values
+```
+
+| Variable | Purpose |
+| --- | --- |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Postgres superuser + database created on first init. |
+| `TZ` | Container timezone. |
+| `APP_DB_PASSWORD` | Password for the `showertrack_app` role the ingestor connects as. |
+| `MQTT_HOST` / `MQTT_PORT` / `MQTT_USERNAME` / `MQTT_PASSWORD` | Broker connection. |
+| `MQTT_TOPIC_TELEMETRY` / `_EVENT` / `_STATUS` | Topic filters (`+` wildcard supplies `device_id`). |
+| `PGHOST` / `PGPORT` / `PGDATABASE` / `PGUSER` | Where and as whom the ingestor connects. |
+
+## Running
+
+```bash
+cd showertrack-mqtt_ingestor
+docker compose up -d --build
+docker compose logs -f mqtt_ingestor
+```
+
+On the **first** start (empty data volume) Postgres runs everything in
+`initdb/` — `000_app_user.sh` creates the `showertrack_app` role from
+`APP_DB_PASSWORD`, then `001_schema.sql` creates the tables. The Postgres data
+directory is bind-mounted at `/mnt/ssd/showertrack/postgres`; init scripts do
+**not** re-run while that volume already contains a database.
+
+## Database schema
+
+The ingestor writes to three tables (see `schema_v2.sql`):
+
+- `telemetry_readings` — one row per telemetry message (every 5 s).
+- `device_events` — `boot`, `timer_started/paused/resumed/finished`,
+  `alarm_silenced`, `mqtt_reconnected`, and `online`/`offline` status.
+- `shower_sessions` — derived sessions with start/end, duration, timer target
+  and overrun, humidity stats, detection method and confidence.
+
+---
+
+## MQTT interface (shared contract)
+
+Topics published by the firmware and consumed by the ingestor:
 
 - `shower/device1/status` — `online` (retained) / `offline` (MQTT last will).
 - `shower/device1/telemetry` — published every 5 s while connected.
@@ -121,6 +237,6 @@ Telemetry payload:
 }
 ```
 
-`temperature_c` and `humidity_rh` are `null` when the SHT4x is unavailable or
-a read fails. The device publishes no wall-clock time; the subscriber should
-record its own receive timestamp.
+`temperature_c` and `humidity_rh` are `null` when the SHT4x is unavailable or a
+read fails. The device publishes no wall-clock time; the ingestor records its
+own receive timestamp.

@@ -1,12 +1,20 @@
-# Private credentials - never commit
+# ── Secrets / credentials — never commit ────────────────────────────
+# Only the *.example templates are tracked; the real files stay local.
 secrets.py
+.env
+.env.*
+!.env.example
 
-# CircuitPython / Python bytecode
+# ── Python ──────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+venv/
+
+# ── CircuitPython ───────────────────────────────────────────────────
 *.mpy.bak
 
-# Editor / OS noise
+# ── Editor / OS noise ───────────────────────────────────────────────
 .DS_Store
 .vscode/
 *.swp
