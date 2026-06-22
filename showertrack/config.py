@@ -32,6 +32,11 @@ MQTT_CLIENT_ID = "showertrack-device1"
 ONLINE_PAYLOAD = "online"
 OFFLINE_PAYLOAD = "offline"
 MQTT_KEEPALIVE_S = 30
+# adafruit_minimqtt requires loop(timeout) >= the client's socket_timeout.
+# Keep it small so each service_mqtt() pass returns promptly and the timer/
+# display stay responsive; connect()/publish() are bounded by recv_timeout
+# (default 10 s), not this value, so a small socket_timeout is safe.
+MQTT_SOCKET_TIMEOUT_S = 0.05
 
 # --- Timing (milliseconds) --------------------------------------------------
 TELEMETRY_INTERVAL_MS = 5000

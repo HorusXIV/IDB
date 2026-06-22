@@ -201,6 +201,7 @@ class ShowerTrack:
                 ssl_context=ssl_context,
                 is_ssl=False,
                 keep_alive=config.MQTT_KEEPALIVE_S,
+                socket_timeout=config.MQTT_SOCKET_TIMEOUT_S,
             )
             # Last will: broker publishes the retained "offline" status if we
             # drop without a clean disconnect.
@@ -448,8 +449,11 @@ class ShowerTrack:
         try:
             # Non-blocking association: kick off the join and let later loop
             # passes observe is_connected, rather than blocking in connect_AP.
+            # wifi_set_passphrase is the low-level primitive and writes the
+            # arguments straight to SPI, so they must be bytes, not str.
             self.esp.wifi_set_passphrase(
-                secrets["wifi_ssid"], secrets["wifi_password"]
+                secrets["wifi_ssid"].encode("utf-8"),
+                secrets["wifi_password"].encode("utf-8"),
             )
         except Exception as err:  # noqa: BLE001
             print("Wi-Fi connect attempt failed:", err)
@@ -519,7 +523,7 @@ class ShowerTrack:
         if not self.mqtt_connected or self.mqtt is None:
             return
         try:
-            self.mqtt.loop(timeout=0.05)
+            self.mqtt.loop(timeout=config.MQTT_SOCKET_TIMEOUT_S)
         except Exception as err:  # noqa: BLE001
             print("MQTT loop error:", err)
             self.mqtt_connected = False
