@@ -59,25 +59,14 @@ documented under
 └── dashboard.png                     # screenshot of the Home Assistant dashboard
 ```
 
-## Secrets
-
-Credentials are never committed. The firmware reads `secrets.py`; the ingestor
-reads a `.env` file. Both are git-ignored, with `secrets.example*.py` and
-`.env.example` checked in as templates. See the top-level `.gitignore`.
-
 ---
 
 # 1. Collector firmware — `showertrack-circuitpython/`
 
-A CircuitPython port of the ShowerTrack data-collection firmware for the
+A CircuitPython data-collection firmware for the
 **Adafruit Feather nRF52840 Express + AirLift FeatherWing** and a small stack
 of Grove sensors. The device reads local sensor/timer state and publishes it
-over MQTT; shower detection and session labelling are left to the ingestor,
-exactly as in the original C++ firmware.
-
-This is a behaviour-preserving migration of the Arduino/C++ project: the MQTT
-topics, JSON payload shapes, timer state machine, debouncing, rotary
-quantisation and connection logic all match the original.
+over MQTT
 
 ## Hardware
 
