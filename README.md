@@ -1,29 +1,62 @@
 # ShowerTrack
 
 End-to-end shower tracking. An embedded **collector** times showers and
-publishes sensor/timer state over MQTT; a server-side **ingestor** subscribes
-to those topics and writes telemetry, events and derived shower sessions into
-PostgreSQL.
+publishes sensor/timer state over MQTT. A server-side **ingestor** subscribes to
+those topics and writes telemetry, events and derived shower sessions into
+PostgreSQL, while a **Home Assistant** instance subscribes to the same broker to
+surface live values and analytics on a dashboard.
+
+## Architecture — tiers, protocols and payloads
 
 ```text
-[ Feather nRF52840 + AirLift ]   firmware — showertrack-circuitpython
-          │  publishes  shower/device1/{status,telemetry,event}
-          ▼
-[ MQTT broker (e.g. Mosquitto) ]
-          │  subscribes shower/+/{status,telemetry,event}
-          ▼
-[ mqtt_ingestor (paho-mqtt) ]    service — showertrack-mqtt_ingestor
-          │  INSERT / UPDATE
-          ▼
-[ PostgreSQL ]
+┌────────────────────────────────────────────────────────────────────┐
+│ TIER 1 · Collector (embedded)                                        │
+│ Feather nRF52840 + AirLift + Grove sensors                           │
+│ firmware: showertrack-circuitpython                                  │
+└────────────────────────────────────────────────────────────────────┘
+        │  protocol: MQTT publish over TCP
+        │  topics:   shower/device1/{status, telemetry, event}
+        │  payload:  status    → text  ("online"/"offline", retained + LWT)
+        │            telemetry → JSON  (sensor + timer state, every 5 s)
+        │            event     → JSON  (boot, timer_*, alarm_silenced, …)
+        ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ TIER 2 · Messaging                                                   │
+│ MQTT broker (e.g. Mosquitto)                                         │
+└────────────────────────────────────────────────────────────────────┘
+        │  protocol: MQTT subscribe  shower/+/{status, telemetry, event}
+        ├──────────────────────────────────────┐
+        ▼                                       ▼
+┌─────────────────────────────────┐  ┌───────────────────────────────────┐
+│ TIER 3a · Ingestion             │  │ TIER 3b · Visualisation           │
+│ mqtt_ingestor (paho-mqtt)       │  │ Home Assistant                    │
+│ parse JSON → rows               │  │ MQTT sensors → dashboard          │
+│ service: showertrack-mqtt_…     │  │ config: homeassistant_….yaml      │
+└─────────────────────────────────┘  └───────────────────────────────────┘
+        │  protocol: SQL over TCP (psycopg)
+        │  payload:  INSERT / UPDATE rows
+        ▼
+┌─────────────────────────────────┐
+│ TIER 4 · Storage                │
+│ PostgreSQL 16                   │
+│ telemetry_readings · device_events · shower_sessions
+└─────────────────────────────────┘
 ```
+
+Tiers 3a (ingestion) and 3b (visualisation) are independent MQTT subscribers
+sharing the same broker: the ingestor persists history, Home Assistant renders
+the live state. The exact topics and JSON payload shapes shared by all tiers are
+documented under
+[MQTT interface (shared contract)](#mqtt-interface-shared-contract).
 
 ## Repository layout
 
 ```text
 .
-├── showertrack-circuitpython/   # device firmware (CircuitPython collector)
-└── showertrack-mqtt_ingestor/   # MQTT → PostgreSQL ingestor (Docker Compose)
+├── showertrack-circuitpython/        # TIER 1 — device firmware (CircuitPython collector)
+├── showertrack-mqtt_ingestor/        # TIER 3a — MQTT → PostgreSQL ingestor (Docker Compose)
+├── homeassistant_configuration.yaml  # TIER 3b — Home Assistant MQTT sensors
+└── dashboard.png                     # screenshot of the Home Assistant dashboard
 ```
 
 ## Secrets
@@ -210,9 +243,45 @@ The ingestor writes to three tables (see `schema_v2.sql`):
 
 ---
 
+# 3. Dashboard — Home Assistant
+
+The visualisation tier is a [Home Assistant](https://www.home-assistant.io/)
+instance that subscribes to the **same MQTT broker** as the ingestor. It needs
+no custom code — only declarative MQTT sensor definitions that map fields out of
+the telemetry payload onto entities, which are then arranged on a dashboard.
+
+![Home Assistant dashboard](dashboard.png)
+
+The dashboard shows live values (shower temperature, humidity, buzzer state,
+remaining time), recent humidity/temperature trends, and derived shower
+analytics (last/average duration, showers today, duration trend).
+
+## Configuration
+
+`homeassistant_configuration.yaml` defines the entities. Each one reads from
+`shower/device1/telemetry` with a `value_template` that picks a single JSON
+field, and uses `shower/device1/status` as its availability topic so entities
+show as *unavailable* when the device goes offline:
+
+| Entity | Type | Source field |
+| --- | --- | --- |
+| Shower Temperature | `sensor` (°C) | `temperature_c` |
+| Shower Humidity | `sensor` (%) | `humidity_rh` |
+| Shower Remaining Seconds | `sensor` (s) | `remaining_s` |
+| Shower Buzzer Active | `binary_sensor` | `buzzer_active` |
+
+To use it, merge the contents into your Home Assistant `configuration.yaml` (or
+include the file), point the `mqtt:` integration at the same broker the firmware
+publishes to, and restart Home Assistant. The historic charts and analytics are
+built on top of these entities using Home Assistant's recorder/history and
+standard dashboard cards.
+
+---
+
 ## MQTT interface (shared contract)
 
-Topics published by the firmware and consumed by the ingestor:
+Topics published by the firmware and consumed by both the ingestor and
+Home Assistant:
 
 - `shower/device1/status` — `online` (retained) / `offline` (MQTT last will).
 - `shower/device1/telemetry` — published every 5 s while connected.
