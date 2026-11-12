@@ -133,7 +133,7 @@ class ShowerTrack:
         if self.display_available:
             order = "swapped RX/TX pins" if self.display_swapped_pins else "TX->CLK, RX->DIO"
             print("Display detected using", order)
-            # Brief self-test, identical to the C++ boot sequence.
+            # Brief self-test
             self.display.show_time(0, True)
             time.sleep(0.2)
             self.display.show_time((59 * 60) + 59, True)
@@ -252,7 +252,7 @@ class ShowerTrack:
             return
         self.last_rotary_sample_ms = now
 
-        # 16-bit AnalogIn -> 10-bit reading to match the original firmware.
+        # 16-bit AnalogIn -> 10-bit reading.
         raw = self.rotary.value >> config.ADC_SHIFT
         self.last_rotary_raw = raw
 

@@ -33,9 +33,7 @@ ONLINE_PAYLOAD = "online"
 OFFLINE_PAYLOAD = "offline"
 MQTT_KEEPALIVE_S = 30
 # adafruit_minimqtt requires loop(timeout) >= the client's socket_timeout.
-# Keep it small so each service_mqtt() pass returns promptly and the timer/
 # display stay responsive; connect()/publish() are bounded by recv_timeout
-# (default 10 s), not this value, so a small socket_timeout is safe.
 MQTT_SOCKET_TIMEOUT_S = 0.05
 
 # --- Timing (milliseconds) --------------------------------------------------
@@ -55,9 +53,7 @@ MAX_DURATION_SECONDS = 1200
 DURATION_STEP_SECONDS = 30
 
 # ADC scaling: CircuitPython's analogio.AnalogIn is 16-bit (0..65535)
-# regardless of hardware resolution.  The original used a 10-bit reading
-# (analogReadResolution(10) -> 0..1023).  Shifting right by 6 reproduces the
-# 10-bit value that the quantizer and the telemetry "rotary_raw" field
-# expect, keeping the selection maths bit-for-bit identical.
+# Shifting right by 6 reproduces the10-bit value that the quantizer 
+# and the telemetry "rotary_raw" field expect
 ADC_SHIFT = 6
 ADC_MAX = 1023
